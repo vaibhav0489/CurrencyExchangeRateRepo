@@ -71,65 +71,26 @@ function detectRegime(history) {
 const loadJSON = (key, def) => { try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; } };
 const saveJSON = (key, val)  => { try { localStorage.setItem(key, JSON.stringify(val)); }   catch {} };
 
-// ─── FETCH VIA ANTHROPIC API (web_search tool — no CORS issues) ──────────────
-async function fetchLiveRate() {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+async function requestJson(path, body) {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      messages: [{
-        role: "user",
-        content: `Search for the current USD to INR exchange rate right now.
-Return ONLY a valid JSON object, nothing else, no markdown:
-{"rate": <number>, "date": "<YYYY-MM-DD>", "source": "<source name>"}`
-      }]
-    })
+    body: JSON.stringify(body || {})
   });
-  if (!res.ok) throw new Error(`Anthropic API ${res.status}`);
-  const data = await res.json();
-
-  // extract text from all content blocks
-  const text = data.content
-    .filter(b => b.type === "text")
-    .map(b => b.text)
-    .join("");
-
-  // parse JSON from response
-  const match = text.match(/\{[\s\S]*?"rate"[\s\S]*?\}/);
-  if (!match) throw new Error("Could not parse rate from response");
-  const parsed = JSON.parse(match[0]);
-  if (!parsed.rate || isNaN(parsed.rate)) throw new Error("Invalid rate value");
-  return { rate: parseFloat(parsed.rate), date: parsed.date || new Date().toISOString().split("T")[0], source: parsed.source || "web search" };
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed (${res.status})`);
+  }
+  return data;
 }
 
-// Also fetch 20-day history via Anthropic API
+async function fetchLiveRate() {
+  return requestJson("/api/latest-rate");
+}
+
 async function fetchHistory20() {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      messages: [{
-        role: "user",
-        content: `Search for USD to INR exchange rate history for the past 20 trading days.
-Return ONLY a valid JSON array, no markdown, no explanation:
-[{"date":"YYYY-MM-DD","rate":85.00}, ...]
-Include exactly 20 entries sorted oldest to newest.`
-      }]
-    })
-  });
-  if (!res.ok) throw new Error(`Anthropic API ${res.status}`);
-  const data = await res.json();
-  const text = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-  const match = text.match(/\[[\s\S]*?\]/);
-  if (!match) throw new Error("Could not parse history");
-  const arr = JSON.parse(match[0]);
-  return arr.filter(e => e.date && e.rate).map(e => ({ date: e.date, rate: parseFloat(e.rate), ts: Date.now() }));
+  const data = await requestJson("/api/history20");
+  return data.history;
 }
 
 // ─── CHART ───────────────────────────────────────────────────────────────────
@@ -152,7 +113,6 @@ function AreaChart({ data, color }) {
       </defs>
       <path d={area} fill="url(#ag)"/>
       <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-      {/* High / Low markers */}
       {[{v:mx,label:`H:${mx.toFixed(2)}`},{v:mn,label:`L:${mn.toFixed(2)}`}].map(({v,label})=>{
         const xi = vals.indexOf(v); const x=toX(xi); const y=toY(v);
         return <g key={label}><circle cx={x} cy={y} r="3" fill={color}/><text x={x+5} y={y+4} fill={color} fontSize="9" fontFamily="JetBrains Mono,monospace">{label}</text></g>;
@@ -175,7 +135,6 @@ export default function App() {
   const [fetchStep, setFetchStep] = useState("");
   const timer = useRef(null);
 
-  // ── helpers ──
   const pushHistory = useCallback((entries) => {
     setHistory(prev => {
       const map = new Map(prev.map(h => [h.date, h]));
@@ -186,7 +145,6 @@ export default function App() {
     });
   }, []);
 
-  // ── fetch latest rate only ──
   const doFetchRate = useCallback(async () => {
     setStatus("loading"); setErrMsg(""); setFetchStep("Searching live USD/INR rate…");
     try {
@@ -201,7 +159,6 @@ export default function App() {
     }
   }, [pushHistory]);
 
-  // ── fetch full 20-day history ──
   const doFetchHistory = useCallback(async () => {
     setStatus("loading"); setErrMsg(""); setFetchStep("Fetching 20-day USD/INR history…");
     try {
@@ -211,7 +168,6 @@ export default function App() {
       setStatus("ok"); setFetchStep("");
       setPulse(true); setTimeout(() => setPulse(false), 1400);
     } catch(e) {
-      // fall back to just latest rate
       setFetchStep("History fetch failed, getting latest rate…");
       try {
         const entry = await fetchLiveRate();
@@ -224,7 +180,6 @@ export default function App() {
     }
   }, [pushHistory]);
 
-  // ── on mount ──
   useEffect(() => {
     if (history.length < 5) doFetchHistory();
     else doFetchRate();
@@ -258,7 +213,6 @@ export default function App() {
     <div style={{ minHeight:"100vh", background:"#03060e", color:"#e2e8f0", fontFamily:"'Syne',sans-serif", padding:0 }}>
       <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 
-      {/* ── STATUS BAR ── */}
       <div style={{ background:"#060c18", borderBottom:"1px solid #0e1e32", padding:"8px 24px", display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
         <div style={{ display:"flex", alignItems:"center", gap:6 }}>
           <div style={{ width:7, height:7, borderRadius:"50%",
@@ -270,7 +224,7 @@ export default function App() {
             {status==="loading"? fetchStep || "FETCHING…" : status==="error"?"API ERROR":"LIVE · AUTO-REFRESH 6H"}
           </span>
         </div>
-        <span style={{ ...mono, fontSize:10, color:"#1a2e4a" }}>SOURCE: ANTHROPIC WEB SEARCH · USD/INR</span>
+        <span style={{ ...mono, fontSize:10, color:"#1a2e4a" }}>SOURCE: VERCEL API · USD/INR</span>
         <div style={{ marginLeft:"auto", display:"flex", gap:8, alignItems:"center" }}>
           {lastFetch && <span style={{ ...mono, fontSize:10, color:"#1e3a5f" }}>Updated {lastFetch.toLocaleTimeString("en-IN")}</span>}
           <button onClick={doFetchRate} disabled={status==="loading"} style={{ ...mono, background:"rgba(99,102,241,0.12)", border:"1px solid #312e81", borderRadius:5, padding:"3px 10px", color:"#818cf8", fontSize:10, cursor:status==="loading"?"not-allowed":"pointer", outline:"none" }}>
@@ -283,8 +237,6 @@ export default function App() {
       </div>
 
       <div style={{ maxWidth:1080, margin:"0 auto", padding:"28px 18px" }}>
-
-        {/* ── HEADER ── */}
         <div style={{ marginBottom:24 }}>
           <div style={{ ...mono, fontSize:9, letterSpacing:"3px", color:"#1a2e4a", marginBottom:6 }}>NSE INDIA · LIVE MACRO ENGINE</div>
           <h1 style={{ margin:0, fontSize:"clamp(20px,3.5vw,34px)", fontWeight:800, letterSpacing:"-0.8px",
@@ -292,11 +244,10 @@ export default function App() {
             INR Currency Signal Dashboard
           </h1>
           <p style={{ margin:"5px 0 0", color:"#334155", fontSize:12 }}>
-            Live rate via AI web search → 20-day regime model → automated sector bias
+            Live rate via serverless web search → 20-day regime model → automated sector bias
           </p>
         </div>
 
-        {/* ── ERROR BANNER ── */}
         {status==="error" && (
           <div style={{ background:"rgba(248,113,113,0.07)", border:"1px solid #f8717125", borderRadius:8, padding:"10px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <span style={{ ...mono, color:"#f87171", fontSize:12 }}>⚠ {errMsg}</span>
@@ -304,11 +255,10 @@ export default function App() {
           </div>
         )}
 
-        {/* ── METRIC CARDS ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:16 }}>
           {[
             { label:"USD / INR",   value: latest ? latest.toFixed(4) : "—",           sub: rateChange!=null?`${rateChange>=0?"+":""}${rateChange.toFixed(3)}% today`:"fetching…", subColor: rateChange==null?"#334155":rateChange>0?"#f87171":"#4ade80", glow: pulse },
-            { label:"20-DAY AVG",  value: avg20   ? avg20.toFixed(4)  : "—",           sub: vsAvg!=0?`${vsAvg>0?"WEAK":"STRONG"} ${Math.abs(vsAvg).toFixed(2)}% vs avg`:"—",      subColor: vsAvg>0?"#f87171":"#4ade80" },
+            { label:"20-DAY AVG",  value: avg20   ? avg20.toFixed(4)  : "—",           sub: vsAvg!=0?`${vsAvg>0?"WEAK":"STRONG"} ${Math.abs(vsAvg).toFixed(2)}% vs avg":"—",      subColor: vsAvg>0?"#f87171":"#4ade80" },
             { label:"VOLATILITY",  value: volatilityPct?`${volatilityPct.toFixed(3)}%`:"—", sub: volatilityPct>0.4?"HIGH — caution":"Normal range",                               subColor: volatilityPct>0.4?"#fbbf24":"#4ade80" },
             { label:"HISTORY PTS", value: history.length, sub:`of ${HISTORY_DAYS} days`,                                                                                          subColor:"#475569" },
           ].map((c,i)=>(
@@ -320,7 +270,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── SPARKLINE CHART ── */}
         {history.length > 3 && (
           <div style={{ background:"rgba(255,255,255,0.018)", border:"1px solid #0e1e32", borderRadius:10, padding:"14px 18px", marginBottom:16 }}>
             <div style={{ ...mono, fontSize:8, letterSpacing:"2px", color:"#2a3f5f", marginBottom:8 }}>
@@ -330,7 +279,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── REGIME BANNER ── */}
         <div style={{ background:ru.glow, border:`1px solid ${ru.color}25`, borderLeft:`4px solid ${ru.color}`, borderRadius:10, padding:"15px 18px", marginBottom:18, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
           <span style={{ fontSize:26 }}>{ru.icon}</span>
           <div style={{ flex:1 }}>
@@ -348,7 +296,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── TABS ── */}
         <div style={{ display:"flex", gap:5, marginBottom:14, borderBottom:"1px solid #0e1e32", paddingBottom:10, flexWrap:"wrap" }}>
           {[["SIGNALS","Sector Signals"],["LIVE","Rate Log"],["WATCHLIST",`Watchlist (${watchlist.length})`]].map(([t,lbl])=>(
             <button key={t} onClick={()=>setTab(t)} style={{ ...mono, background:tab===t?"rgba(99,102,241,0.14)":"transparent", border:`1px solid ${tab===t?"#6366f1":"transparent"}`, borderRadius:6, padding:"5px 13px", cursor:"pointer", color:tab===t?"#818cf8":"#3a5070", fontSize:11, fontWeight:600, outline:"none" }}>
@@ -366,7 +313,6 @@ export default function App() {
           )}
         </div>
 
-        {/* ── SIGNALS / WATCHLIST ── */}
         {(tab==="SIGNALS"||tab==="WATCHLIST") && (
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             <div style={{ display:"grid", gridTemplateColumns:"34px 1fr 98px 98px 62px 40px", gap:8, padding:"3px 12px", ...mono, fontSize:8, letterSpacing:"2px", color:"#1a2e4a" }}>
@@ -417,7 +363,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── LIVE LOG ── */}
         {tab==="LIVE" && (
           <div style={{ background:"rgba(255,255,255,0.018)", border:"1px solid #0e1e32", borderRadius:10, overflow:"hidden" }}>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", padding:"9px 16px", background:"rgba(255,255,255,0.025)", borderBottom:"1px solid #0a1525", ...mono, fontSize:8, letterSpacing:"2px", color:"#2a3f5f" }}>
@@ -444,17 +389,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ── FOOTER ── */}
         <div style={{ marginTop:24, paddingTop:14, borderTop:"1px solid #0e1e32", display:"flex", justifyContent:"space-between", flexWrap:"wrap", gap:6 }}>
-          <span style={{ ...mono, fontSize:9, color:"#1a2e4a" }}>DATA · ANTHROPIC WEB SEARCH · USD/INR · FREE</span>
+          <span style={{ ...mono, fontSize:9, color:"#1a2e4a" }}>DATA · VERCEL API · USD/INR · DEMO</span>
           <span style={{ ...mono, fontSize:9, color:"#1a2e4a" }}>ALGO · 20-DMA + STDDEV VOLATILITY · NOT FINANCIAL ADVICE</span>
         </div>
       </div>
 
-      <style>{`
-        @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0.25} }
-        @keyframes fadeUp  { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }
-      `}</style>
+      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} } @keyframes fadeUp { from{opacity:0;transform:translateY(7px)} to{opacity:1;transform:translateY(0)} }`}</style>
     </div>
   );
 }
