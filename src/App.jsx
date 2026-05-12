@@ -255,21 +255,64 @@ export default function App() {
           </div>
         )}
 
+        {/* ── METRIC CARDS ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:16 }}>
           {[
-            { label:"USD / INR",   value: latest ? latest.toFixed(4) : "—",           sub: rateChange!=null?`${rateChange>=0?"+":""}${rateChange.toFixed(3)}% today`:"fetching…", subColor: rateChange==null?"#334155":rateChange>0?"#f87171":"#4ade80", glow: pulse },
-            { label:"20-DAY AVG",  value: avg20   ? avg20.toFixed(4)  : "—",           sub: vsAvg!=0?`${vsAvg>0?"WEAK":"STRONG"} ${Math.abs(vsAvg).toFixed(2)}% vs avg":"—",      subColor: vsAvg>0?"#f87171":"#4ade80" },
-            { label:"VOLATILITY",  value: volatilityPct?`${volatilityPct.toFixed(3)}%`:"—", sub: volatilityPct>0.4?"HIGH — caution":"Normal range",                               subColor: volatilityPct>0.4?"#fbbf24":"#4ade80" },
-            { label:"HISTORY PTS", value: history.length, sub:`of ${HISTORY_DAYS} days`,                                                                                          subColor:"#475569" },
-          ].map((c,i)=>(
-            <div key={i} style={{ background:"rgba(255,255,255,0.02)", border:`1px solid ${c.glow?"#6366f1":"#0e1e32"}`, borderRadius:10, padding:"13px 15px", boxShadow:c.glow?"0 0 18px rgba(99,102,241,0.18)":"none", transition:"all 0.4s" }}>
-              <div style={{ ...mono, fontSize:8, letterSpacing:"2px", color:"#2a3f5f", marginBottom:5 }}>{c.label}</div>
-              <div style={{ ...mono, fontSize:20, fontWeight:700, color:"#f1f5f9" }}>{c.value}</div>
-              <div style={{ fontSize:11, color:c.subColor, marginTop:3 }}>{c.sub}</div>
+            {
+              label: "USD / INR",
+              value: latest ? latest.toFixed(4) : "—",
+              sub:
+                rateChange != null
+                  ? `${rateChange >= 0 ? "+" : ""}${rateChange.toFixed(3)}% today`
+                  : "fetching…",
+              subColor: rateChange == null ? "#334155" : rateChange > 0 ? "#f87171" : "#4ade80",
+              glow: pulse,
+            },
+            {
+              label: "20-DAY AVG",
+              value: avg20 ? avg20.toFixed(4) : "—",
+              sub:
+                vsAvg != null
+                  ? `${vsAvg > 0 ? "WEAK" : "STRONG"} ${Math.abs(vsAvg).toFixed(2)}% vs avg`
+                  : "—",
+              subColor: vsAvg > 0 ? "#f87171" : "#4ade80",
+            },
+            {
+              label: "VOLATILITY",
+              value: volatilityPct ? `${volatilityPct.toFixed(3)}%` : "—",
+              sub: volatilityPct > 0.4 ? "HIGH — caution" : "Normal range",
+              subColor: volatilityPct > 0.4 ? "#fbbf24" : "#4ade80",
+            },
+            {
+              label: "HISTORY PTS",
+              value: history.length,
+              sub: `of ${HISTORY_DAYS} days`,
+              subColor: "#475569",
+            },
+          ].map((c, i) => (
+            <div
+              key={i}
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: `1px solid ${c.glow ? "#6366f1" : "#0e1e32"}`,
+                borderRadius: 10,
+                padding: "13px 15px",
+                boxShadow: c.glow ? "0 0 18px rgba(99,102,241,0.18)" : "none",
+                transition: "all 0.4s",
+              }}
+            >
+              <div style={{ ...mono, fontSize: 8, letterSpacing: "2px", color: "#2a3f5f", marginBottom: 5 }}>
+                {c.label}
+              </div>
+              <div style={{ ...mono, fontSize: 20, fontWeight: 700, color: "#f1f5f9" }}>
+                {c.value}
+              </div>
+              <div style={{ fontSize: 11, color: c.subColor, marginTop: 3 }}>
+                {c.sub}
+              </div>
             </div>
           ))}
         </div>
-
         {history.length > 3 && (
           <div style={{ background:"rgba(255,255,255,0.018)", border:"1px solid #0e1e32", borderRadius:10, padding:"14px 18px", marginBottom:16 }}>
             <div style={{ ...mono, fontSize:8, letterSpacing:"2px", color:"#2a3f5f", marginBottom:8 }}>
